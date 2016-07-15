@@ -1,7 +1,7 @@
 # Change the following as required:
 CC	= gcc
 
-CFLAGS	= -ansi -Wall -Dsun -D__STDC__=0
+#CFLAGS	= -ansi -Wall -Dsun -D__STDC__=0
 # My flags for gcc/solaris 2.3:  -ansi -Wall -Dsun -D__STDC__=0
 # Add in -DGCC_STRUCT_PROBLEM for gcc versions 1.x under SunOS 4.x
 # Add in -D__STDC__=0 for gcc under Solaris 2 (for Sun's screwy headers)
@@ -9,7 +9,7 @@ CFLAGS	= -ansi -Wall -Dsun -D__STDC__=0
 # Add in -D_SOCKADDR_LEN for DEC OSF/1 (see <sys/socket.h>)
 
 # Following line for SVR4, Solaris 2.x
-LIBS	= /usr/ucblib/libucb.a -lsocket -lnsl
+#LIBS	= /usr/ucblib/libucb.a -lsocket -lnsl
 
 # Following line for 4.4BSD, BSD/386, SunOS 4.x, AIX 3.2.2, OSF/1
 #LIBS	=

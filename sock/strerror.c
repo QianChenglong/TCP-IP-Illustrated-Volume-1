@@ -1,6 +1,6 @@
 #include	<stdio.h>
 
-extern char	*sys_errlist[];
+extern const char * const sys_errlist[];
 extern int	sys_nerr;
 
 char *

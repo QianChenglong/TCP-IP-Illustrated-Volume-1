@@ -3,7 +3,7 @@ CC	= gcc
 CFLAGS	=
 
 # Following line for SVR4, Solaris 2.x
-LIBS	= /usr/ucblib/libucb.a -lsocket -lnsl
+#LIBS	= /usr/ucblib/libucb.a -lsocket -lnsl
 
 # Following line for 4.4BSD, BSD/386, SunOS 4.x, AIX 3.2.2
 #LIBS	=
