@@ -1,0 +1,527 @@
+From owner-ineng-interest@venera.isi.edu Thu Aug  3 13:17:46 1989
+Received: from venera.isi.edu by sccgate (5.61/1.34)
+	id AA19575; Thu, 3 Aug 89 13:17:40 -0400
+Received: by venera.isi.edu (5.61/5.61+local)
+	id <AA08207>; Thu, 3 Aug 89 07:40:09 -0700
+Posted-Date: Thu, 03 Aug 89 10:40:06 EDT
+Received-Date: Thu, 3 Aug 89 07:40:03 -0700
+Received: from FORNAX.ECE.CMU.EDU by venera.isi.edu (5.61/5.61+local)
+	id <AA08200>; Thu, 3 Aug 89 07:40:03 -0700
+Received: by fornax.ece.cmu.edu (5.54-ECE2/5.17)
+	id AA20308; Thu, 3 Aug 89 10:40:08 EDT
+From: Matt Mathis <mathis@fornax.ece.cmu.edu>
+Message-Id: <8908031440.AA20308@fornax.ece.cmu.edu>
+To: ietf@venera.isi.edu
+Cc: van@helios.ee.lbl.gov
+Subject: 3 Party traceroute
+Date: Thu, 03 Aug 89 10:40:06 EDT
+Status: R
+
+
+Attached below is a patch file for Van Jacobson's traceroute, to add support
+the IP LSRR (Loose Source Record Route) option in addition to the standard
+traceroute/ttl stuff.
+
+This is useful for asking how somebody else reaches a particular target.
+For example: "traceroute -g 10.3.0.5 128.182.0.0" shows the path from the
+Cambridge Mailbridge to PSC.  This works from (almost) anywhere!
+
+traceroute -g 192.5.146.4 -g 10.3.0.5 35.0.0.0
+Shows how the Cambridge Mailbrige reaches Merit, by using PSC to reach the
+Mailbridge.
+
+This version is substantially cleaned up by Jeff Honig at Cornell.  Thanks!
+
+Van Jacobson's original traceroute (spring 1988) supported this feature,
+but he removed it due to pressure from people with broken gateways.   At the
+July 1989 IETF this issue was discussed, and the only objection noted was
+later retracted with "I've been trying to get my management to upgrade our
+gateways for a long time, maybe this will force the issue".   I expect Van's
+traceroute to support LSRR sometime soon.  This patch should be considered
+interim.
+
+The Van's traceroute is available with anonymous ftp from ftp.ee.lbl.gov.
+It does require kernel mods (Sorry, I don't have object modules.)
+
+Caveats:
+
+LSRR must be fully supported at least as far as the specified gateway.  This
+seems to be the case for the NSFnet, ARPAnet and all reasonably recent
+commercial gateways/routers.
+
+LSRR must be supported (recognized as completed) or ignored between the
+specified gateway to the final target.  This seems to be the case almost
+every where else.
+
+THERE MAY STILL BE GATEWAYS OUT IN THE INTERNET WHICH HAVE FATAL BUGS IN THE
+CODE TO PROCESS ROUTING OPTIONS.   Be nice to your neighbors.
+
+All of the the usual disclaimers about free code apply.
+
+--MM--
+
+*** /tmp/,RCSt1a01058	Mon Jul 31 22:20:06 1989
+--- traceroute.c	Mon Jul 31 22:14:29 1989
+***************
+*** 202,210 ****
+--- 202,212 ----
+  #include <netinet/in_systm.h>
+  #include <netinet/in.h>
+  #include <netinet/ip.h>
++ #include <netinet/ip_var.h>
+  #include <netinet/ip_icmp.h>
+  #include <netinet/udp.h>
+  #include <netdb.h>
++ #include <ctype.h>
+  
+  #define	MAXPACKET	65535	/* max ip packet size */
+  #ifndef MAXHOSTNAMELEN
+***************
+*** 223,228 ****
+--- 225,231 ----
+  #define Fprintf (void)fprintf
+  #define Sprintf (void)sprintf
+  #define Printf (void)printf
++ 
+  extern	int errno;
+  extern  char *malloc();
+  extern  char *inet_ntoa();
+***************
+*** 265,271 ****
+  int nflag;			/* print addresses numerically */
+  
+  char usage[] =
+!  "Usage: traceroute [-dnrv] [-w wait] [-m max_ttl] [-p port#] [-q nqueries] [-t tos] [-s src_addr] host [data size]\n";
+  
+  
+  main(argc, argv)
+--- 268,274 ----
+  int nflag;			/* print addresses numerically */
+  
+  char usage[] =
+!  "Usage: traceroute [-dnrv] [-w wait] [-m max_ttl] [-p port#] [-q nqueries] [-t tos] [-s src_addr] [-g gateway] host [data size]\n";
+  
+  
+  main(argc, argv)
+***************
+*** 280,286 ****
+--- 283,295 ----
+  	int seq = 0;
+  	int tos = 0;
+  	struct hostent *hp;
++ 	int lsrr = 0;
++ 	u_long gw;
++ 	u_char optlist[MAX_IPOPTLEN], *oix;
+  
++ 	oix = optlist;
++ 	bzero(optlist, sizeof(optlist));
++ 
+  	argc--, av++;
+  	while (argc && *av[0] == '-')  {
+  		while (*++av[0])
+***************
+*** 288,293 ****
+--- 297,334 ----
+  			case 'd':
+  				options |= SO_DEBUG;
+  				break;
++ 			case 'g':
++ 				argc--, av++;
++ 				if ((lsrr+1) >= ((MAX_IPOPTLEN-IPOPT_MINOFF)/sizeof(u_long))) {
++ 				  Fprintf(stderr,"No more than %d gateways\n",
++ 					  ((MAX_IPOPTLEN-IPOPT_MINOFF)/sizeof(u_long))-1);
++ 				  exit(1);
++ 				}
++ 				if (lsrr == 0) {
++ 				  *oix++ = IPOPT_LSRR;
++ 				  *oix++;	/* Fill in total length later */
++ 				  *oix++ = IPOPT_MINOFF; /* Pointer to LSRR addresses */
++ 				}
++ 				lsrr++;
++ 				if (isdigit(*av[0])) {
++ 				  gw = inet_addr(*av);
++ 				  if (gw) {
++ 				    bcopy(&gw, oix, sizeof(u_long));
++ 				  } else {
++ 				    Fprintf(stderr, "Unknown host %s\n",av[0]);
++ 				    exit(1);
++ 				  }
++ 				} else {
++ 				  hp = gethostbyname(av[0]);
++ 				  if (hp) {
++ 				    bcopy(hp->h_addr, oix, sizeof(u_long));
++ 				  } else {
++ 				    Fprintf(stderr, "Unknown host %s\n",av[0]);
++ 				    exit(1);
++ 				  }
++ 				}
++ 				oix += sizeof(u_long);
++ 				goto nextarg;
+  			case 'm':
+  				argc--, av++;
+  				max_ttl = atoi(av[0]);
+***************
+*** 411,416 ****
+--- 452,475 ----
+  		perror("traceroute: raw socket");
+  		exit(5);
+  	}
++ 
++ 	if (lsrr > 0) {
++ 	  lsrr++;
++ 	  optlist[IPOPT_OLEN]=IPOPT_MINOFF-1+(lsrr*sizeof(u_long));
++ 	  bcopy((caddr_t)&to->sin_addr, oix, sizeof(u_long));
++ 	  oix += sizeof(u_long);
++ 	  while ((oix - optlist)&3) oix++;		/* Pad to an even boundry */
++ 
++ 	  if ((pe = getprotobyname("ip")) == NULL) {
++ 	    perror("traceroute: unknown protocol ip\n");
++ 	    exit(10);
++ 	  }
++ 	  if ((setsockopt(sndsock, pe->p_proto, IP_OPTIONS, optlist, oix-optlist)) < 0) {
++ 	    perror("traceroute: lsrr options");
++ 	    exit(5);
++ 	  }
++ 	}
++ 
+  #ifdef SO_SNDBUF
+  	if (setsockopt(sndsock, SOL_SOCKET, SO_SNDBUF, (char *)&datalen,
+  		       sizeof(datalen)) < 0) {
+
+
+
+
+
+++++++++++++
+>From owner-ineng-interest@venera.isi.edu Tue Aug  8 18:22:35 1989
+Received: from venera.isi.edu by sccgate (5.61/1.34)
+	id AA25608; Tue, 8 Aug 89 18:22:26 -0400
+Received: by venera.isi.edu (5.61/5.61+local)
+	id <AA12406>; Tue, 8 Aug 89 13:58:10 -0700
+Posted-Date: Tue, 8 Aug 89 15:58:25 -0500
+Received-Date: Tue, 8 Aug 89 13:58:06 -0700
+Received: from uxc.cso.uiuc.edu by venera.isi.edu (5.61/5.61+local)
+	id <AA12402>; Tue, 8 Aug 89 13:58:06 -0700
+Received: by uxc.cso.uiuc.edu
+	(5.61+/IDA-1.2.8) id AA28286; Tue, 8 Aug 89 15:58:25 -0500
+Date: Tue, 8 Aug 89 15:58:25 -0500
+From: "Paul Pomes (I'm the NRA!)" <paul@uxc.cso.uiuc.edu>
+Message-Id: <8908082058.AA28286@uxc.cso.uiuc.edu>
+To: ietf@venera.isi.edu, mathis@fornax.ece.cmu.edu
+Subject: new traceroute man page w. IP LSRR
+Cc: van@helios.ee.lbl.gov
+Status: R
+
+.\" Copyright (c) 1988 The Regents of the University of California.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms are permitted
+.\" provided that the above copyright notice and this paragraph are
+.\" duplicated in all such forms and that any documentation,
+.\" advertising materials, and other materials related to such
+.\" distribution and use acknowledge that the software was developed
+.\" by the University of California, Berkeley.  The name of the
+.\" University may not be used to endorse or promote products derived
+.\" from this software without specific prior written permission.
+.\" THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+.\" IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+.\" WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+.\"
+.\"	$Header: traceroute.8,v 1.1 89/02/28 20:46:12 van Exp $
+.\"
+.TH TRACEROUTE 8 "February 28, 1989"
+.UC 6
+.SH NAME
+traceroute \- print the route packets take to network host
+.SH SYNOPSIS
+.B traceroute
+[
+.B \-m
+max_ttl
+] [
+.B \-n
+] [
+.B \-p
+port
+] [
+.B \-q
+nqueries
+] [
+.B \-r
+] [
+.B \-s
+src_addr
+] [
+.B \-g
+addr
+] [
+.B \-t
+tos
+] [
+.B \-w
+waittime
+]
+.I host
+[
+.I packetsize
+]
+.SH DESCRIPTION
+The Internet is a large and complex aggregation of
+network hardware, connected together by gateways.
+Tracking the route one's packets follow (or finding the miscreant
+gateway that's discarding your packets) can be difficult.
+.I Traceroute
+utilizes the IP protocol `time to live' field and attempts to elicit an
+ICMP TIME_EXCEEDED response from each gateway along the path to some
+host.
+.PP
+The only mandatory parameter is the destination host name or IP number.
+The default probe datagram length is 38 bytes, but this may be increased
+by specifying a packet size (in bytes) after the destination host name.
+.PP
+Other options are:
+.TP 5 5
+.BI \-m\  n
+Set the max time-to-live (max number of hops) used in outgoing probe
+packets to
+.I n
+hops.
+The default is 30 hops (the same default used for TCP connections).
+.TP 5 5
+.B \-n
+Print hop addresses numerically rather than symbolically and numerically
+(saves a nameserver address-to-name lookup for each gateway found on the
+path).
+.TP 5 5
+.BI \-p\  n
+Set the base UDP port number used in probes to
+.I n
+(default is 33434).
+.I Traceroute
+hopes that nothing is listening on UDP ports
+.I base
+to
+.I base+nhops-1
+at the destination host (so an ICMP PORT_UNREACHABLE message will
+be returned to terminate the route tracing).
+If something is listening on a port in the default range,
+this option can be used to pick an unused port range.
+.TP 5 5
+.B \-r
+Bypass the normal routing tables and send directly to a host on an attached
+network.
+If the host is not on a directly-attached network,
+an error is returned.
+This option can be used to ping a local host through an interface
+that has no route through it (e.g., after the interface was dropped by
+.IR routed (8C)).
+.TP 8 8
+.BI \-s\  addr
+Use
+.I addr
+as the IP address (which must be given as an IP number,
+not a hostname) as the source address in outgoing probe packets.
+On hosts with more than one IP address, this option can be used to
+force the source address to be something other than the IP address
+of the interface the probe packet is sent on.
+If the IP address is not one of this machine's interface addresses,
+an error is returned and nothing is sent.
+.TP 8 8
+.BI \-g\  addr
+Enable the IP LSRR (Loose Source Record Route) option in addition to the
+TTL tests.
+This is useful for asking how somebody else, at IP address
+.IR addr ,
+reaches a particular target.
+.TP 8 8
+.BI \-t\  tos
+Set the
+.I type-of-service
+in probe packets to the following value (default zero).
+The value must be a decimal integer in the range 0 to 255.
+This option can be used to see if different types-of-service result
+in different paths.
+(If you are not running 4.4bsd, this may be academic since the normal network
+services like telnet and ftp don't let you control the TOS).
+Not all values of TOS are legal or meaningful \- see the IP spec
+for definitions.
+Useful values are probably `\-t 16' (low delay) and `\-t 8' (high throughput).
+.TP 5 5
+.B \-v
+Verbose output.
+Received ICMP packets other than TIME_EXCEEDED and UNREACHABLEs are listed.
+.TP 5 5
+.BI \-w\  n
+Set the time to wait for a response to a probe to
+.I n
+seconds (default 3 sec.).
+.PP
+This program attempts to trace the route an IP packet would follow to some
+internet host by launching UDP probe packets with a small ttl (time to live)
+then listening for an ICMP "time exceeded" reply from a gateway.
+We start our probes with a ttl of one and increase by one until we get an
+ICMP "port unreachable" (which means we got to "host") or hit a max (which
+defaults to 30 hops & can be changed with the
+.B \-m
+flag).
+Three probes (change with
+.B \-q
+flag) are sent at each ttl setting and a line is printed showing the ttl,
+address of the gateway and round trip time of each probe.
+If the probe answers come from different gateways,
+the address of each responding system will be printed.
+If there is no response within a 3 sec. timeout interval (changed with the
+.B \-w
+flag), a "*" is printed for that probe.
+.PP
+We don't want the destination host to process the UDP probe packets
+so the destination port is set to an unlikely value (if some clod on
+the destination is using that value, it can be changed with the
+.B \-p
+flag).
+.PP
+A sample use and output might be:
+.PP
+.RS
+.nf
+[yak 71]% traceroute nis.nsf.net.
+traceroute to nis.nsf.net (35.1.1.48), 30 hops max, 56 byte packet
+ 1  helios.ee.lbl.gov (128.3.112.1)  19 ms  19 ms  0 ms
+ 2  lilac-dmc.Berkeley.EDU (128.32.216.1)  39 ms  39 ms  19 ms
+ 3  lilac-dmc.Berkeley.EDU (128.32.216.1)  39 ms  39 ms  19 ms
+ 4  ccngw-ner-cc.Berkeley.EDU (128.32.136.23)  39 ms  40 ms  39 ms
+ 5  ccn-nerif22.Berkeley.EDU (128.32.168.22)  39 ms  39 ms  39 ms
+ 6  128.32.197.4 (128.32.197.4)  40 ms  59 ms  59 ms
+ 7  131.119.2.5 (131.119.2.5)  59 ms  59 ms  59 ms
+ 8  129.140.70.13 (129.140.70.13)  99 ms  99 ms  80 ms
+ 9  129.140.71.6 (129.140.71.6)  139 ms  239 ms  319 ms
+10  129.140.81.7 (129.140.81.7)  220 ms  199 ms  199 ms
+11  nic.merit.edu (35.1.1.48)  239 ms  239 ms  239 ms
+.fi
+.RE
+.PP
+Note that lines 2 & 3 are the same.  This is due to a buggy
+kernel on the 2nd hop system \- lbl-csam.arpa \- that forwards
+packets with a zero ttl (a bug in the distributed version of 4.3BSD).
+.PP
+A more interesting example is:
+.PP
+.RS
+.nf
+[yak 72]% traceroute allspice.lcs.mit.edu.
+traceroute to allspice.lcs.mit.edu (18.26.0.115), 30 hops max
+ 1  helios.ee.lbl.gov (128.3.112.1)  0 ms  0 ms  0 ms
+ 2  lilac-dmc.Berkeley.EDU (128.32.216.1)  19 ms  19 ms  19 ms
+ 3  lilac-dmc.Berkeley.EDU (128.32.216.1)  39 ms  19 ms  19 ms
+ 4  ccngw-ner-cc.Berkeley.EDU (128.32.136.23)  19 ms  39 ms  39 ms
+ 5  ccn-nerif22.Berkeley.EDU (128.32.168.22)  20 ms  39 ms  39 ms
+ 6  128.32.197.4 (128.32.197.4)  59 ms  119 ms  39 ms
+ 7  131.119.2.5 (131.119.2.5)  59 ms  59 ms  39 ms
+ 8  129.140.70.13 (129.140.70.13)  80 ms  79 ms  99 ms
+ 9  129.140.71.6 (129.140.71.6)  139 ms  139 ms  159 ms
+10  129.140.81.7 (129.140.81.7)  199 ms  180 ms  300 ms
+11  129.140.72.17 (129.140.72.17)  300 ms  239 ms  239 ms
+12  * * *
+13  128.121.54.72 (128.121.54.72)  259 ms  499 ms  279 ms
+14  * * *
+15  * * *
+16  * * *
+17  * * *
+18  ALLSPICE.LCS.MIT.EDU (18.26.0.115)  339 ms  279 ms  279 ms
+.fi
+.RE
+.PP
+Note that the gateways 12, 14, 15, 16 & 17 hops away
+either don't send ICMP "time exceeded" messages or send them
+with a ttl too small to reach us.
+14 \- 17 are running the MIT C Gateway code that doesn't
+send "time exceeded"s.
+God only knows what's going on with 12.
+.PP
+The silent gateway 12 in the above may be the result of a bug in
+the 4.[23]BSD network code (and its derivatives):  4.x (x <= 3)
+sends an unreachable message using whatever ttl remains in the
+original datagram.
+Since, for gateways, the remaining ttl is zero, the ICMP "time exceeded"
+is guaranteed to not make it back to us.
+The behavior of this bug is slightly more interesting when it
+appears on the destination system:
+.PP
+.RS
+.nf
+ 1  helios.ee.lbl.gov (128.3.112.1)  0 ms  0 ms  0 ms
+ 2  lilac-dmc.Berkeley.EDU (128.32.216.1)  39 ms  19 ms  39 ms
+ 3  lilac-dmc.Berkeley.EDU (128.32.216.1)  19 ms  39 ms  19 ms
+ 4  ccngw-ner-cc.Berkeley.EDU (128.32.136.23)  39 ms  40 ms  19 ms
+ 5  ccn-nerif35.Berkeley.EDU (128.32.168.35)  39 ms  39 ms  39 ms
+ 6  csgw.Berkeley.EDU (128.32.133.254)  39 ms  59 ms  39 ms
+ 7  * * *
+ 8  * * *
+ 9  * * *
+10  * * *
+11  * * *
+12  * * *
+13  rip.Berkeley.EDU (128.32.131.22)  59 ms !  39 ms !  39 ms !
+.fi
+.RE
+.PP
+Notice that there are 12 "gateways" (13 is the final
+destination) and exactly the last half of them are "missing".
+What's really happening is that rip (a Sun-3 running Sun OS3.5)
+is using the ttl from our arriving datagram as the ttl in its ICMP reply.
+So, the reply will time out on the return path (with no notice sent
+to anyone since ICMP's aren't sent for ICMP's)
+until we probe with a ttl that's at least twice the path length.
+I.e., rip is really only 7 hops away.
+A reply that returns with a ttl of 1 is a clue this problem exists.
+.I Traceroute
+prints a "!" after the time if the ttl is <= 1.
+Since vendors ship a lot of obsolete (DEC's Ultrix, Sun 3.x) or
+non-standard (HPUX) software, expect to see this problem
+frequently and/or take care picking the target host of your probes.
+.PP
+Other possible annotations after the time are
+.BR !H ,
+.BR !N ,
+.B !P
+(got a host, network or protocol unreachable, respectively),
+.br
+.B !S
+or
+.B !F
+(source route failed or fragmentation needed \- neither of these should
+ever occur and the associated gateway is busted if you see one).
+If almost all the probes result in some kind of unreachable,
+.I traceroute
+will give up and exit.
+.PP
+.RS
+traceroute \-g 10.3.0.5 128.182.0.0
+.RE
+.PP
+will show the path from the Cambridge Mailbridge to PSC while
+.PP
+.RS
+traceroute \-g 192.5.146.4 \-g 10.3.0.5 35.0.0.0
+.RE
+.PP
+shows how the Cambridge Mailbrige reaches Merit,
+by using PSC to reach the Mailbridge.
+.PP
+This program is intended for use in network testing, measurement
+and management.
+It should be used primarily for manual fault isolation.
+Because of the load it could impose on the network, it is unwise to use
+.I traceroute
+during normal operations or from automated scripts.
+.SH AUTHOR
+Implemented by Van Jacobson from a suggestion by Steve Deering.
+Debugged by a cast of thousands with particularly cogent suggestions
+or fixes from C. Philip Wood, Tim Seaver and Ken Adelman.
+.SH SEE ALSO
+.IR netstat (1),
+.IR ping (8)
+
+
+
+

@@ -1,0 +1,57 @@
+	This directory contains versions of traceroute that (a) implement
+path MTU discovery (traceroute.pmtu.c) and (b) allow for either loose or
+strict source routing (traceroute.lsrr.c).  A diff will reveal the two
+programs are nearly identical, and they could probably be combined into
+one program with another option.
+
+	Both are derived from the Berkeley sources, and therefore carry the
+corresponding Berkeley copyright.
+
+	The file LSRR.patches is the file that I used to put in the source
+routing option.
+
+*****   YOU MUST HAVE SUPERUSER PRIVILEGES TO RUN EITHER OF THESE PROGRAMS.
+They both use raw sockets, which require superuser privilege to create.
+
+*****   Solaris 2.x WARNING:  The traceroute.pmtu program behaves strangely
+under Solaris 2.x, since the kernel supports path MTU discovery.  What I've
+seen is the first run of the program is OK, but when the ICMP too-big error
+is returned, not only does traceroute.pmtu look at it, but so does the kernel,
+and the kernel saves the information.  On second and subsequent runs, the
+kernel will "helpfully" fragment the UDP datagram being sent (using the
+information it saved in its routing table), so this program won't appear
+to be working.  You have to wait for the kernel's pmtu information to
+timeout before you can duplicate the first run of the program.
+
+*****   SVR4 WARNING:  The traceroute.pmtu program determines the MTU of
+the outgoing interface by sending the first datagram assuming an MTU of
+17914, getting an EMSGSIZE error back, and then stepping down the table
+of MTUs until the sendto() doesn't return an error.  Every TCP/IP
+implementation that I've seen has a simple test: if the IP datagram is
+larger than the outgoing MTU *and* the don't fragment bit is set, return
+the error EMSGSIZE.  Some interaction with the streams subsystem under
+SVR4 (including Solaris 2.x) prevents IP from returning the error EMSGSIZE
+when this occurs.  This causes really large UDP datagrams to be sent
+initially by this program (I've seen 17914-byte datagrams from Solaris 2.x
+and 8166-byte datagrams from SVR4 on a 386).  The solution is to change
+the line (approx. line 305) in traceroute.pmtu.c:
+
+	int *mtuptr = &mtus[0];
+
+changing the subscript [0] to [7] (assuming an Ethernet).  This will cause
+the first datagram to be 1500 bytes, instead of 17914.  Alternately you can
+specify the starting size as a program option.
+
+*****	SOURCE ROUTING LIMITATION:  The traceroute.lsrr.c program only
+works for me under SunOS 4.1.x and vanilla SVR4.  It *does not* work under
+BSD/386, 4.4BSD, or Solaris 2.x.  The reason is as follows: traceroute
+sets the source route correctly using the IP_OPTIONS socket option and
+then sets the IP_HDRINCL socket option to allow it to pass a complete IP
+header (with its desired value of the TTL).  But newer systems do not
+insert the IP options specified by IP_OPTIONS if IP_HDRINCL is also set
+(for a SOCK_RAW Internet socket), meaning the source route option is never
+used by the kernel!  The only way around this appears to be for traceroute
+itself to set the correct source route options in the IP header, before
+doing the sendto(), essentially emulating what the kernel does when it
+inserts IP options prior to output.  This is nontrivial and I haven't
+tried to do it.

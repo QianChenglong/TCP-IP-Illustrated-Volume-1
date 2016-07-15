@@ -1,0 +1,54 @@
+Preface
+-------
+
+	This source code is being made available to let readers of the book
+"TCP/IP Illustrated, Volume 1: The Protocols" experiment with TCP/IP,
+using the same tools that were used in writing the book.
+
+	THIS SOURCE CODE IS *NOT* POLISHED, EXTENSIVELY DEBUGGED CODE.
+
+	A later version of these programs will probably appear in the next
+edition of the author's book "UNIX Network Programming", probably in 1995,
+at which time the code will be polished.  For this reason, the source code
+for the sock program is copyrighted by the author, as you'll see in each
+source file.  You may use this program for your own educational purposes,
+but I don't want copies appearing elsewhere until a polished version has
+been published in book form.
+
+	Here is a listing of the systems and compilers that I've compiled
+and tested the programs under.  I do not have superuser privilege on some
+of the systems, so I wasn't able to test all the programs in all the
+environments (non-SU indicates these systems).
+
+		Solaris 2.3, gcc
+		Solaris 2.3, acc     (non-SU)
+		SunOS 4.1.3, gcc
+		SunOS 4.1.3, acc     (non-SU)
+		SVR4/386
+		BSD/386 Version 1.0
+		4.4BSD               (non-SU)
+		AIX 3.2.2            (non-SU)
+		DEC OSF/1 V1.3       (non-SU)
+
+It's pretty simple code, so it should port to other Unix boxes quite easily.
+***** THE CODE FOR THE sock PROGRAM REQUIRES AN ANSI C COMPILER. *****
+
+Files and Directories in this Archive
+-------------------------------------
+
+DISCLAIMER	Read this!
+
+README		This file.
+
+icmpaddrmask/	The program that issues ICMP address mask requests.
+		You must be superuser to run this program.
+
+icmptime/	The program that issues ICMP timestamp requests.
+		You must be superuser to run this program.
+
+sock/		The sock program described in Appendix C of the text.
+
+traceroute/	The versions of traceroute that use path MTU discovery and
+		loose and strict source routing.  You must be superuser
+		to run these programs.  Please read the README file in
+		this directory, as there are numerous limitations.
